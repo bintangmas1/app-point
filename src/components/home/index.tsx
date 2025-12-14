@@ -5,6 +5,8 @@ import FooterOne from "../../layouts/footers/FooterOne";
 import Menu from "./Menu";
 import Search from "./Search";
 import Top5 from "./Top5";
+import Analytics from "./Analytics";
+import RecentActivity from "./RecentActivity";
 
 const Home = () => {
 	return (
@@ -14,7 +16,9 @@ const Home = () => {
 			<div className="page-content-wrapper">
 				{/* <Search /> */}
 				<Menu />
+				<Analytics />
 				<Top5 />
+				<RecentActivity />
 			</div>
 			<FooterOne />
 			<FooterTwo />

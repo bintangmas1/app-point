@@ -37,6 +37,8 @@ export interface CustomerFilters {
   orderBy?: string;
   ascending?: boolean;
   limit?: number;
+  page?: number;
+  pageSize?: number;
   withLogs?: boolean;
 }
 
@@ -57,7 +59,7 @@ export async function addCustomer(customerData: CreateCustomerData) {
     };
 
     const { data, error } = await supabase
-      .from("customers") // Bukan "admins"
+      .from("customers")
       .insert([completeCustomerData])
       .select()
       .single();
@@ -78,13 +80,11 @@ export async function addCustomer(customerData: CreateCustomerData) {
   }
 }
 
-// 1. Fungsi untuk menambah points customer
 export async function addCustomerPoints(
   customerId: string,
   pointsToAdd: number
 ) {
   try {
-    // Dapatkan points saat ini
     const { data: customerData, error: fetchError } = await supabase
       .from('customers')
       .select('point')
@@ -93,11 +93,9 @@ export async function addCustomerPoints(
 
     if (fetchError) throw fetchError;
 
-    // Hitung points baru
     const currentPoints = customerData.point || 0;
     const newPoints = currentPoints + pointsToAdd;
 
-    // Update dengan points baru
     const { data, error } = await supabase
       .from('customers')
       .update({ point: newPoints })
@@ -111,13 +109,11 @@ export async function addCustomerPoints(
   }
 }
 
-// 2. Fungsi untuk menukar/mengurangi points customer
 export async function redeemCustomerPoints(
   customerId: string,
   pointsToRedeem: number
 ) {
   try {
-    // Dapatkan points saat ini
     const { data: customerData, error: fetchError } = await supabase
       .from('customers')
       .select('point')
@@ -128,15 +124,12 @@ export async function redeemCustomerPoints(
 
     const currentPoints = customerData.point || 0;
 
-    // Validasi apakah points cukup
     if (currentPoints < pointsToRedeem) {
       throw new Error('Points tidak mencukupi');
     }
 
-    // Hitung points baru (dikurangi)
     const newPoints = currentPoints - pointsToRedeem;
 
-    // Update dengan points baru
     const { data, error } = await supabase
       .from('customers')
       .update({ point: newPoints })
@@ -150,7 +143,6 @@ export async function redeemCustomerPoints(
   }
 }
 
-// 3. Fungsi untuk membuat log aktivitas
 export async function createLog(logData: Omit<Log, 'id' | 'created_at'>) {
   try {
     const { data, error } = await supabase
@@ -172,7 +164,6 @@ export async function createLog(logData: Omit<Log, 'id' | 'created_at'>) {
   }
 }
 
-// 4. Fungsi untuk update data customer
 export async function updateCustomer(
   customerId: string,
   updateData: UpdateCustomerData
@@ -191,16 +182,13 @@ export async function updateCustomer(
   }
 }
 
-// 5. Fungsi untuk delete customer
 export async function deleteCustomer(customerId: string) {
   try {
-    // Hapus logs terkait customer
-    const { error: logError } = await supabase
+    await supabase
       .from('logs')
       .delete()
       .eq('customer_id', customerId);
 
-    // Hapus customer
     const { error } = await supabase
       .from('customers')
       .delete()
@@ -213,9 +201,28 @@ export async function deleteCustomer(customerId: string) {
   }
 }
 
-// 6. Hook untuk get customers (versi yang diperbaiki)
+export async function deleteCustomers(customerIds: string[]) {
+  try {
+    await supabase
+      .from('logs')
+      .delete()
+      .in('customer_id', customerIds);
+
+    const { error } = await supabase
+      .from('customers')
+      .delete()
+      .in('id', customerIds);
+
+    if (error) throw error;
+    return { error: null };
+  } catch (error: any) {
+    return { error: error.message };
+  }
+}
+
 export function useCustomers(filters: CustomerFilters = {}) {
   const [data, setData] = useState<Customer[]>([]);
+  const [count, setCount] = useState<number>(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [refetchIndex, setRefetchIndex] = useState(0);
@@ -233,9 +240,8 @@ export function useCustomers(filters: CustomerFilters = {}) {
           point, 
           status, 
           created_at
-        `);
+        `, { count: 'exact' });
 
-        // Jika filter dengan logs
         if (filters.withLogs) {
           query = supabase.from("customers").select(`
             id, 
@@ -254,18 +260,15 @@ export function useCustomers(filters: CustomerFilters = {}) {
                 name
               )
             )
-          `);
+          `, { count: 'exact' });
 
-          // Order dan limit logs
           query = query.order('created_at', { foreignTable: 'logs', ascending: false });
           query = query.limit(5, { foreignTable: 'logs' });
         }
 
-        // Terapkan filter berdasarkan parameter
         if (filters.id) {
           query = query.eq("id", filters.id);
         } else {
-          // Filter hanya diterapkan jika bukan pencarian berdasarkan ID
           if (filters.status !== undefined) {
             query = query.eq("status", filters.status);
           }
@@ -275,10 +278,9 @@ export function useCustomers(filters: CustomerFilters = {}) {
           }
 
           if (filters.search) {
-            query = query.ilike("name", `%${filters.search}%`);
+            query = query.or(`name.ilike.%${filters.search}%,address.ilike.%${filters.search}%,phone.ilike.%${filters.search}%`);
           }
 
-          // Terapkan ordering
           if (filters.orderBy) {
             query = query.order(filters.orderBy, {
               ascending: filters.ascending ?? false,
@@ -287,16 +289,20 @@ export function useCustomers(filters: CustomerFilters = {}) {
             query = query.order("created_at", { ascending: false });
           }
 
-          // Terapkan limit
           if (filters.limit) {
             query = query.limit(filters.limit);
+          } else if (filters.page !== undefined && filters.pageSize !== undefined) {
+            const from = (filters.page - 1) * filters.pageSize;
+            const to = from + filters.pageSize - 1;
+            query = query.range(from, to);
           }
         }
 
-        const { data, error } = await query;
+        const { data, error, count } = await query;
 
         if (error) throw error;
         setData(data || []);
+        setCount(count || 0);
       } catch (err: any) {
         setError(err.message);
         setData([]);
@@ -312,10 +318,9 @@ export function useCustomers(filters: CustomerFilters = {}) {
     setRefetchIndex(prev => prev + 1);
   }, []);
 
-  return { data, loading, error, refetch };
+  return { data, count, loading, error, refetch };
 }
 
-// 7. Hook untuk get customer detail dengan logs
 export function useCustomerDetail(customerId: string) {
   const [data, setData] = useState<Customer | null>(null);
   const [loading, setLoading] = useState(true);
@@ -326,11 +331,9 @@ export function useCustomerDetail(customerId: string) {
     async function fetchCustomerDetail() {
       if (!customerId) {
         setData(null);
-        // setLoading(false);
         return;
       }
 
-      // setLoading(true);
       setError(null);
 
       try {
@@ -370,12 +373,121 @@ export function useCustomerDetail(customerId: string) {
     }
 
     fetchCustomerDetail();
-  }, [customerId, refetchIndex]); // <-- Dependency array yang benar
+  }, [customerId, refetchIndex]);
 
-  // --- Fungsi refetch ---
   const refetch = useCallback(() => {
     setRefetchIndex(prev => prev + 1);
   }, []);
 
   return { data, loading, error, refetch };
 }
+
+export function useCustomerStats() {
+  const [stats, setStats] = useState({
+    totalCustomers: 0,
+    activeCustomers: 0,
+    totalPoints: 0,
+    newCustomersThisMonth: 0
+  });
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    async function fetchStats() {
+      try {
+        setLoading(true);
+
+        const { count: total, error: errTotal } = await supabase
+          .from('customers')
+          .select('*', { count: 'exact', head: true });
+
+        if (errTotal) throw errTotal;
+
+        const { count: active, error: errActive } = await supabase
+          .from('customers')
+          .select('*', { count: 'exact', head: true })
+          .eq('status', true);
+
+        if (errActive) throw errActive;
+
+        const { data: pointsData, error: errPoints } = await supabase
+          .from('customers')
+          .select('point');
+
+        if (errPoints) throw errPoints;
+        const totalPoints = pointsData?.reduce((sum, c) => sum + (c.point || 0), 0) || 0;
+
+        const startOfMonth = new Date();
+        startOfMonth.setDate(1);
+        startOfMonth.setHours(0, 0, 0, 0);
+
+        const { count: newCust, error: errNew } = await supabase
+          .from('customers')
+          .select('*', { count: 'exact', head: true })
+          .gte('created_at', startOfMonth.toISOString());
+
+        if (errNew) throw errNew;
+
+        setStats({
+          totalCustomers: total || 0,
+          activeCustomers: active || 0,
+          totalPoints,
+          newCustomersThisMonth: newCust || 0
+        });
+
+      } catch (err: any) {
+        setError(err.message);
+      } finally {
+        setLoading(false);
+      }
+    }
+
+    fetchStats();
+  }, []);
+
+  return { stats, loading, error };
+}
+
+export function useRecentLogs(limit: number = 5) {
+  const [logs, setLogs] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    async function fetchLogs() {
+      try {
+        setLoading(true);
+        const { data, error } = await supabase
+          .from('logs')
+          .select(`
+            id,
+            note,
+            created_at,
+            customer_id,
+            customers:customer_id ( name ),
+            admin_id,
+            admins:admin_id ( name )
+          `)
+          .order('created_at', { ascending: false })
+          .limit(limit);
+
+        if (error) throw error;
+        setLogs(data || []);
+      } catch (err: any) {
+        setError(err.message);
+      } finally {
+        setLoading(false);
+      }
+    }
+
+    fetchLogs();
+  }, [limit]);
+
+  return { logs, loading, error };
+}
+
+export const getMemberLevel = (point: number) => {
+  if (point >= 500) return { name: 'Platinum', color: 'info', icon: 'gem' };
+  if (point >= 100) return { name: 'Gold', color: 'warning', icon: 'trophy' };
+  return { name: 'Silver', color: 'secondary', icon: 'award' };
+};
