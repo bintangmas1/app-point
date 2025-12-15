@@ -70,13 +70,13 @@ Created: December 10, 2020
 # [font-family]
 "Poppins", sans-serif;
 ----------------------- */
-@import url("public/assets/css/bootstrap.min.css");
-@import url("public/assets/css/bootstrap-icons.css");
-@import url("public/assets/css/tiny-slider.css");
-@import url("public/assets/css/venobox.min.css");
-@import url("public/assets/css/rangeslider.css");
-@import url("public/assets/css/vanilla-dataTables.min.css");
-@import url("public/assets/css/apexcharts.css");
+@import url("./bootstrap.min.css");
+@import url("./bootstrap-icons.css");
+@import url("./tiny-slider.css");
+@import url("./venobox.min.css");
+@import url("./rangeslider.css");
+@import url("./vanilla-dataTables.min.css");
+@import url("./apexcharts.css");
 
 
 @import url("https://fonts.googleapis.com/css2?family=Poppins:wght@100;200;300;400;500;600;700;800;900&display=swap");
