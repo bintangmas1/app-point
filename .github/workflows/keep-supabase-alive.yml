@@ -1,0 +1,54 @@
+name: Keep Supabase Alive
+
+on:
+  schedule:
+    - cron: '0 */6 * * *'  # Setiap 6 jam
+  workflow_dispatch:
+
+jobs:
+  keep-alive:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Install Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Create dummy script
+        run: |
+          cat > keepalive.js << 'EOL'
+          const { createClient } = require('@supabase/supabase-js')
+
+          const supabaseUrl = process.env.SUPABASE_URL
+          const anonKey = process.env.SUPABASE_ANON_KEY
+
+          const supabase = createClient(supabaseUrl, anonKey)
+
+          async function ping() {
+            try {
+              // Ganti 'your_table' dengan nama tabel publik yang ada
+              const { data, error } = await supabase
+                .from('admins')  // <-- GANTI INI!
+                .select('id')
+                .limit(1)
+
+              if (error) throw error
+
+              console.log('✅ Supabase pinged successfully:', data)
+            } catch (error) {
+              console.error('❌ Error pinging Supabase:', error.message)
+              process.exit(1)
+            }
+          }
+
+          ping()
+          EOL
+
+      - name: Install Supabase SDK
+        run: npm install @supabase/supabase-js
+
+      - name: Run ping
+        run: node keepalive.js
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
